@@ -170,3 +170,49 @@ scoped access.
 "Chat SDK" means the Vercel Chat SDK. When adapter behavior matters, inspect
 the source checkout at `~/github/vercel/chat` rather than generated files under
 `node_modules`.
+
+## Cursor Cloud specific instructions
+
+This section captures non-obvious, durable setup/run caveats for cloud agents.
+Toolchains are preinstalled in the VM snapshot and symlinked into
+`/usr/local/bin`, so they resolve in any shell: Node 24 (nvm) + `pnpm@10.28.1`,
+`bun`, `uv` + CPython 3.11, Ruby 3.4.8 (rbenv), and the Rust stable toolchain
+(rustup, currently 1.98). The startup update script only refreshes
+project dependencies (`pnpm install --frozen-lockfile`,
+`uv sync --project services/workflow-python`,
+`bundle install --gemfile=services/console/Gemfile`); everything else persists
+in the snapshot.
+
+- Per-language test/lint commands are authoritative in `.github/workflows/ci.yml`
+  and `.github/workflows/console-ci.yml`. That is the fastest, secret-free dev
+  loop. The JS bots run via `bun` (e.g. `cd services/<bot> && bun run check:types`
+  and `bun test test` / `bun run test`); Python via
+  `python3.11 -m unittest`/`uv run ... pytest` and `.github/scripts/run-tool-tests.sh`;
+  Rust via `cargo fmt/clippy/test`; Console via `bin/rails db:test:prepare test`.
+- Rust requires an edition-2024 toolchain (>= 1.85). The default `rustup` stable
+  is set; do not fall back to any older pinned cargo.
+- Docker has no systemd here. Start it once per boot before anything needing a
+  DB/containers: `sudo dockerd &` (use a tmux session). It is configured with the
+  `fuse-overlayfs` storage driver and legacy iptables.
+- Postgres for local api-rs/Console work must be ParadeDB, not stock Postgres:
+  the Console schema and api-rs migrations need the `vector`, `pg_search`, and
+  `pg_cron` extensions. Use the CI-pinned image and preload flags (see
+  `.github/scripts/start-paradedb-postgres.sh`):
+  `docker run ... paradedb/paradedb:0.23.0-pg16 -c shared_preload_libraries=pg_search,pg_cron`.
+  `paradedb/paradedb:latest` and plain `postgres` lack `vector` and will fail
+  `db:schema:load`.
+- `cargo test --workspace` DB-backed tests skip unless the URLs in
+  `services/api-rs/AGENTS.md` are set (at minimum `SESSION_SQLX_TEST_DATABASE_URL`,
+  matching CI). Point them at a ParadeDB instance.
+- To run the control plane end-to-end without Kubernetes (reproduces the CI
+  "Run API integration test" step): start Console as iron-control
+  (`bin/rails server --port 18081`, `RAILS_ENV=development`, `Iron::Bootstrap.run!`,
+  then export `CENTAUR_API_TOKEN=$(bin/rails runner 'print ApiServer::Jwt.encode_for_console_service')`),
+  start `centaur-api-server` on `:18080` with `RUN_MIGRATIONS=true` +
+  `DATABASE_URL` pointed at ParadeDB, then run `centaur-api-integration-test`.
+  Session thread keys must be namespaced `<source>:<id>` (e.g. `cli:hello-1`).
+- The full stack (`just up` / `just deploy`, real Slack + sandbox agent turns)
+  additionally needs a Kubernetes cluster and external secrets
+  (`OP_SERVICE_ACCOUNT_TOKEN`, `OP_VAULT`, `SLACK_*`, model API keys via
+  1Password). These are not present by default; see `README.md` and the
+  `run-centaur-dev` skill for that path.
