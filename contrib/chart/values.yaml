@@ -685,6 +685,7 @@ discordbot:
   mentionRoleIds: ""
   # Rename auto-created threads to the triggering message; set false to keep generic names.
   nameThreads: true
+  # Harness for new Discord sessions; defaults to sandbox.harnessEngine (override via extraEnv).
   extraEnv: {}
   resources: {}
 

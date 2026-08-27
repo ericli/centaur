@@ -387,15 +387,50 @@ async function bytesToBase64(data: Buffer | Blob): Promise<string> {
   return Buffer.from(bytes).toString("base64");
 }
 
+/** Default harness when the deployment sets no override, preserving prior behavior. */
+export const DEFAULT_HARNESS_TYPE = "codex";
+
 async function createSession(
   options: DiscordbotOptions,
   threadId: string,
   conversationName?: string,
 ): Promise<void> {
-  const fetchFn = options.fetch ?? fetch;
   const name = conversationName?.trim();
+  const requested = options.defaultHarnessType?.trim() || DEFAULT_HARNESS_TYPE;
+  const response = await postCreateSession(options, threadId, requested, name);
+  if (response.ok) return;
+
+  // Sessions are pinned to their harness at creation. If this thread's session
+  // already exists with a different harness (e.g. the deployment default
+  // changed after the thread was created), api-rs replies 409 with the existing
+  // harness; re-create with it so the thread keeps one stable harness. Clone
+  // the response so the untouched original still feeds ensureApiOk on the
+  // non-recoverable path. Mirrors teamsbot/slackbotv2.
+  if (response.status === 409) {
+    const existing = existingHarnessFromConflict(
+      await response
+        .clone()
+        .text()
+        .catch(() => ""),
+    );
+    if (existing && existing !== requested) {
+      const retry = await postCreateSession(options, threadId, existing, name);
+      await ensureApiOk(retry, "create session", options);
+      return;
+    }
+  }
+  await ensureApiOk(response, "create session", options);
+}
+
+async function postCreateSession(
+  options: DiscordbotOptions,
+  threadId: string,
+  harnessType: string,
+  name?: string,
+): Promise<Response> {
+  const fetchFn = options.fetch ?? fetch;
   const body: DiscordbotCreateSessionRequest = {
-    harness_type: "codex",
+    harness_type: harnessType,
     metadata: {
       source: "discordbot",
       platform: "discord",
@@ -404,12 +439,29 @@ async function createSession(
       ...(name ? { discord_conversation_name: name } : {}),
     },
   };
-  const response = await fetchFn(apiSessionUrl(options.apiUrl, threadId), {
+  return fetchFn(apiSessionUrl(options.apiUrl, threadId), {
     method: "POST",
     headers: apiHeaders(options),
     body: JSON.stringify(body),
   });
-  await ensureApiOk(response, "create session", options);
+}
+
+/**
+ * Extract the existing harness from an api-rs 409 create-session conflict,
+ * preferring the structured `existing_harness` field and falling back to the
+ * error message. Mirrors slackbotv2/teamsbot.
+ */
+function existingHarnessFromConflict(body: string): string | undefined {
+  try {
+    const payload: unknown = JSON.parse(body);
+    if (isJsonObject(payload)) {
+      const existing = stringValue(payload.existing_harness);
+      if (existing) return existing;
+    }
+  } catch {
+    // Not a JSON body; fall back to the message text.
+  }
+  return /already exists with harness_type ([A-Za-z0-9_-]+)/.exec(body)?.[1];
 }
 
 async function appendSessionMessages(

@@ -64,6 +64,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "centaur.secretEnvName" . }}
                   key: {{ printf "%sDATABASE_URL" .Values.secretManager.envPrefix }}
+            # New Discord threads run the deployment's default harness
+            # (sandbox.harnessEngine); override per-bot via discordbot.extraEnv.
+            - name: DISCORDBOT_DEFAULT_HARNESS_TYPE
+              value: {{ .Values.sandbox.harnessEngine | quote }}
             - name: DISCORDBOT_USER_NAME
               value: {{ .Values.discordbot.userName | quote }}
             - name: DISCORDBOT_GUILD_ALLOWLIST

@@ -193,6 +193,142 @@ describe("forwardToSessionApi principal naming", () => {
   });
 });
 
+describe("createSession harness selection", () => {
+  function createRecorder(createResponses: Array<() => Response> = []): {
+    fetchFn: DiscordbotFetch;
+    creates: Array<Record<string, unknown>>;
+  } {
+    const creates: Array<Record<string, unknown>> = [];
+    let createIndex = 0;
+    const fetchFn: DiscordbotFetch = async (input, init) => {
+      const url = String(input);
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (url.endsWith("/execute")) {
+        return Response.json({
+          execution_id: "exec-1",
+          ok: true,
+          status: "running",
+          thread_key: "discord:G1:C1:T1",
+        });
+      }
+      if (url.endsWith("/messages")) return Response.json({ ok: true });
+      creates.push(body);
+      const make = createResponses[createIndex++];
+      return make ? make() : Response.json({ ok: true });
+    };
+    return { fetchFn, creates };
+  }
+
+  function options(
+    fetchFn: DiscordbotFetch,
+    overrides: Partial<DiscordbotOptions> = {},
+  ): DiscordbotOptions {
+    return {
+      apiUrl: "http://api.test",
+      applicationId: "app",
+      botToken: "token",
+      fetch: fetchFn,
+      publicKey: "key",
+      ...overrides,
+    };
+  }
+
+  // Isolate createSession: no messages to append and no execute turn.
+  function createOnlyInput(): ForwardSessionInput {
+    return {
+      afterEventId: 0,
+      executeMessage: undefined,
+      messages: [],
+      onEventId: () => undefined,
+      openStream: false,
+      threadId: "discord:G1:C1:T1",
+    };
+  }
+
+  function harnessOf(create: Record<string, unknown> | undefined): unknown {
+    return create?.harness_type;
+  }
+
+  it("defaults to codex when no default harness is configured", async () => {
+    const { fetchFn, creates } = createRecorder();
+    await forwardToSessionApi(options(fetchFn), createOnlyInput());
+    expect(creates).toHaveLength(1);
+    expect(harnessOf(creates[0])).toBe("codex");
+  });
+
+  it("uses the configured default harness", async () => {
+    const { fetchFn, creates } = createRecorder();
+    await forwardToSessionApi(
+      options(fetchFn, { defaultHarnessType: "claudecode" }),
+      createOnlyInput(),
+    );
+    expect(harnessOf(creates[0])).toBe("claudecode");
+  });
+
+  it("falls back to codex when the configured default is blank", async () => {
+    const { fetchFn, creates } = createRecorder();
+    await forwardToSessionApi(
+      options(fetchFn, { defaultHarnessType: "   " }),
+      createOnlyInput(),
+    );
+    expect(harnessOf(creates[0])).toBe("codex");
+  });
+
+  it("re-creates with the existing harness on a 409 conflict (structured body)", async () => {
+    const { fetchFn, creates } = createRecorder([
+      () =>
+        Response.json(
+          { code: "harness_conflict", existing_harness: "amp" },
+          { status: 409 },
+        ),
+    ]);
+    await forwardToSessionApi(
+      options(fetchFn, { defaultHarnessType: "codex" }),
+      createOnlyInput(),
+    );
+    // First create requests codex, recovery re-creates with the pinned harness.
+    expect(creates.map(harnessOf)).toEqual(["codex", "amp"]);
+  });
+
+  it("recovers using the harness parsed from a 409 message body", async () => {
+    const { fetchFn, creates } = createRecorder([
+      () =>
+        new Response(
+          "session already exists with harness_type claudecode for this thread",
+          { status: 409, statusText: "Conflict" },
+        ),
+    ]);
+    await forwardToSessionApi(
+      options(fetchFn, { defaultHarnessType: "codex" }),
+      createOnlyInput(),
+    );
+    expect(creates.map(harnessOf)).toEqual(["codex", "claudecode"]);
+  });
+
+  it("does not retry a 409 that resolves to the same harness", async () => {
+    const { fetchFn, creates } = createRecorder([
+      () =>
+        Response.json(
+          { code: "harness_conflict", existing_harness: "codex" },
+          { status: 409, statusText: "Conflict" },
+        ),
+    ]);
+    let caught: unknown;
+    try {
+      await forwardToSessionApi(
+        options(fetchFn, { defaultHarnessType: "codex" }),
+        createOnlyInput(),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(SessionApiError);
+    expect((caught as SessionApiError).status).toBe(409);
+    // Only the initial create was attempted; no recovery re-create.
+    expect(creates).toHaveLength(1);
+  });
+});
+
 describe("isContentlessApiMessage", () => {
   it("is true for empty text with no attachments (sticker/forward/poll)", () => {
     expect(isContentlessApiMessage(apiMessage({ text: "" }))).toBe(true);

@@ -95,6 +95,13 @@ export type DiscordbotOptions = {
   apiUrl: string;
   applicationId: string;
   botToken: string;
+  /**
+   * Harness the session is created with (default `codex`, preserving prior
+   * behavior). Mirrors the other ingresses' configurable default so a
+   * deployment running amp/claudecode/etc. can use it from Discord. A thread
+   * that already exists keeps its original harness via 409 conflict recovery.
+   */
+  defaultHarnessType?: string;
   discordApiUrl?: string;
   fetch?: DiscordbotFetch;
   guildAllowlist?: readonly string[];

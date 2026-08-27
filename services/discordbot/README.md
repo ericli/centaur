@@ -50,6 +50,7 @@ ingress** — only a `GET /health` endpoint that reflects the Gateway connection
 | `DISCORD_MENTION_ROLE_IDS` | – | Role mentions that also trigger the bot. |
 | `DISCORDBOT_NAME_THREADS` | – | Set `false` to keep the adapter's generic thread names. |
 | `DISCORDBOT_USER_NAME` | – | Bot display name used for mention parsing/thread naming (default `centaur`; the chart sets it from `discordbot.userName`). |
+| `DISCORDBOT_DEFAULT_HARNESS_TYPE` | – | Harness new Discord sessions are created with (default `codex`; the chart sets it from `sandbox.harnessEngine`). Threads already created keep their original harness via 409 conflict recovery. |
 | `DISCORDBOT_STATE_KEY_PREFIX` | – | Prefix for rows in the Postgres thread-state store (default `centaur-discordbot`). |
 | `DISCORD_API_URL` | – | Override Discord API base. |
 | `PORT` | – | Health server port (default 3001). |
