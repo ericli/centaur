@@ -59,23 +59,6 @@ ingress** — only a `GET /health` endpoint that reflects the Gateway connection
 DMs are denied by the guild allowlist: the adapter does request the DirectMessages intent, but a
 DM has no guild, so the fail-closed allowlist check rejects it.
 
-## Agent runtime
-
-Set `sandbox.harnessEngine` in Helm values to select the default runtime for new
-Discord threads, matching the other chat ingresses:
-
-```yaml
-sandbox:
-  harnessEngine: claudecode
-```
-
-For a standalone bot, set `DISCORDBOT_DEFAULT_HARNESS=claudecode`. Supported
-runtime names are `codex`, `claudecode`, `amp`, `nanocodex`, and `hermes`; the
-selected runtime must be available in the sandbox and have its credentials
-configured. A default change applies to new threads; existing sessions retain
-their runtime and conversation state. Discord does not parse per-message
-runtime or model flags. Model providers remain configured in the sandbox.
-
 ## Discord application setup
 
 1. **Create the application** at <https://discord.com/developers/applications>. Note the
