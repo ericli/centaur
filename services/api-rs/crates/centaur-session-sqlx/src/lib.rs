@@ -2175,11 +2175,7 @@ fn stdout_lease_expires_at(lease: Duration) -> OffsetDateTime {
 /// Insert one session event, serialized per thread.
 ///
 /// Readers resume with an `after_event_id` cursor, but identity values are
-/// assigned at insert time, not commit time: without serialization an event
-/// that commits after a higher-numbered one would be skipped by any reader
-/// that already advanced past it. The transaction-scoped lock is taken before
-/// the event id is drawn and held until commit, so a thread's events become
-/// visible in event_id order.
+/// assigned at insert time, not commit time.
 async fn insert_session_event<'e, E>(
     executor: E,
     thread_key: &ThreadKey,
