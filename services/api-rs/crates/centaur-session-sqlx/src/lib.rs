@@ -2172,10 +2172,7 @@ fn stdout_lease_expires_at(lease: Duration) -> OffsetDateTime {
     OffsetDateTime::now_utc() + TimeDuration::new(seconds, lease.subsec_nanos() as i32)
 }
 
-/// Insert one session event, serialized per thread.
-///
-/// Readers resume with an `after_event_id` cursor, but identity values are
-/// assigned at insert time, not commit time.
+/// Serialized per thread so event ids commit in order for `after_event_id` readers.
 async fn insert_session_event<'e, E>(
     executor: E,
     thread_key: &ThreadKey,
@@ -2871,9 +2868,6 @@ mod tests {
         );
     }
 
-    /// Event readers advance an `after_event_id` cursor, so a thread's events
-    /// must commit in event_id order: an event committed after a higher id was
-    /// already read would be skipped forever.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn event_cursor_never_skips_an_event_that_commits_late() {
         let Some(store) = test_store().await else {
@@ -2891,13 +2885,12 @@ mod tests {
             .await
             .expect("create session");
 
-        // A slow writer has inserted its event but not committed yet.
+        // Inserted but not yet committed.
         let mut slow_writer = store.pool().begin().await.expect("begin slow writer");
         super::insert_session_event(&mut *slow_writer, &thread_key, None, "test.slow", json!({}))
             .await
             .expect("insert slow event");
 
-        // A concurrent writer appends to the same thread meanwhile.
         let mut fast_writer = tokio::spawn({
             let store = store.clone();
             let thread_key = thread_key.clone();
