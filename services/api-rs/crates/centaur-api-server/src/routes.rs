@@ -860,7 +860,7 @@ fn drain_response(report: &DrainReport) -> Value {
         .collect::<Vec<_>>();
     json!({
         "ok": report.failed.is_empty(),
-        "complete": report.failed.is_empty() && report.busy.is_empty(),
+        "complete": report.is_complete(),
         "stopped_count": report.stopped.len(),
         "stopped": report.stopped,
         "busy_count": report.busy.len(),
